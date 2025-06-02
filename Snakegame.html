@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Matt's Snake Clone</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #222;
+      color: #fff;
+      text-align: center;
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+    }
+
+    canvas {
+      background: #000;
+      display: none;
+      margin: 20px auto;
+      touch-action: none;
+    }
+
+    #startScreen, #highscores, #playerNameEntry {
+      margin-top: 100px;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    input {
+      padding: 8px;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+
+    /* Touch controls container */
+    #touchControls {
+      display: none;
+      margin: 20px auto;
+      max-width: 320px;
+    }
+
+    .touch-row {
+      display: flex;
+      justify-content: center;
+      margin: 5px 0;
+    }
+
+    .touch-button {
+      background: #444;
+      border: none;
+      color: white;
+      font-size: 20px;
+      padding: 15px 25px;
+      margin: 5px;
+      border-radius: 8px;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .touch-button:active {
+      background: #666;
+    }
+  </style>
+</head>
+<body>
+
+<div id="startScreen">
+  <h1>Matt's Snake Clone</h1>
+  <button onclick="startGame()">Start Game</button>
+</div>
+
+<canvas id="game" width="600" height="600"></canvas>
+
+<!-- Touch Controls for mobile -->
+<div id="touchControls">
+  <div class="touch-row">
+    <button class="touch-button" id="btnUp">▲</button>
+  </div>
+  <div class="touch-row">
+    <button class="touch-button" id="btnLeft">◀</button>
+    <button class="touch-button" id="btnDown">▼</button>
+    <button class="touch-button" id="btnRight">▶</button>
+  </div>
+</div>
+
+<div id="highscores" style="display: none;">
+  <h1>Highscores</h1>
+  <ol id="scoreList"></ol>
+  <button onclick="restartGame()">Play Again</button>
+  <button onclick="resetHighscores()">Reset Highscores</button>
+</div>
+
+<div id="playerNameEntry" style="display: none;">
+  <h1>Enter Your Name</h1>
+  <input type="text" id="playerName" placeholder="Your name" maxlength="15" />
+  <br>
+  <button onclick="submitName()">Submit</button>
+</div>
+
+<audio id="bgm" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_a47b3e6d6b.mp3?filename=8-bit-music-loop-112196.mp3" loop></audio>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const tileSize = 20;
+const tileCount = canvas.width / tileSize;
+
+let snake = [];
+let food = { x: 5, y: 5 }; // Apple
+let pineapple = { x: 10, y: 10 }; // Yellow fruit
+let pineappleMoveInterval;
+let appleMoveInterval;
+
+let velocity = { x: 0, y: 0 };
+let score = 0;
+let appleCounter = 0;
+let baseSpeed = 150;
+let speed = baseSpeed;
+let animationFrame;
+let lastTime = 0;
+let slowedUntil = 0;
+const bgm = document.getElementById('bgm');
+
+let highscores = JSON.parse(localStorage.getItem('highscores')) || [];
+let pendingScore = 0;
+
+function startGame() {
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('playerNameEntry').style.display = 'none';
+  document.getElementById('highscores').style.display = 'none';
+  canvas.style.display = 'block';
+  document.getElementById('touchControls').style.display = 'block';
+
+  const middle = Math.floor(tileCount / 2);
+  snake = [{ x: middle, y: middle }];
+  velocity = { x: 1, y: 0 };
+  score = 0;
+  appleCounter = 0;
+  speed = baseSpeed;
+
+  placeFood();
+  placePineapple();
+
+  pineappleMoveInterval = setInterval(placePineapple, 10000); // Move pineapple every 10 seconds
+  appleMoveInterval = setInterval(placeFood, 7000);         // Move apple every 7 seconds
+
+  animationFrame = requestAnimationFrame(gameAnimation);
+  bgm.play();
+}
+
+function gameAnimation(time = 0) {
+  if (time - lastTime > speed) {
+    gameLoop();
+    lastTime = time;
+  }
+  animationFrame = requestAnimationFrame(gameAnimation);
+}
+
+function gameLoop() {
+  update();
+  draw();
+}
+
+function update() {
+  const head = { x: snake[0].x + velocity.x, y: snake[0].y + velocity.y };
+
+  // Wall collision
+  if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+    return gameOver();
+  }
+
+  // Self collision
+  for (let segment of snake) {
+    if (head.x === segment.x && head.y === segment.y) {
+      return gameOver();
+    }
+  }
+
+  snake.unshift(head);
+
+  if (head.x === food.x && head.y === food.y) {
+    score++;
+    appleCounter++;
+    placeFood();
+
+    if (appleCounter % 5 === 0) {
+      speed = Math.max(30, speed * 0.66); // Increase speed every 5 apples
+    }
+  } else if (head.x === pineapple.x && head.y === pineapple.y) {
+    score += 5;  // Pineapple bonus points
+    placePineapple();
+    slowedUntil = Date.now() + 5000;
+    speed = baseSpeed; // Reset speed during slowdown
+  } else {
+    snake.pop();
+  }
+
+  // Restore speed after slow effect ends
+  if (Date.now() > slowedUntil && appleCounter % 5 !== 0) {
+    speed = baseSpeed * Math.pow(0.66, Math.floor(appleCounter / 5));
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Snake with glow
+  ctx.shadowColor = 'lime';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = 'lime';
+  for (let segment of snake) {
+    ctx.fillRect(segment.x * tileSize, segment.y * tileSize, tileSize, tileSize);
+  }
+
+  // Apple with glow
+  ctx.shadowColor = 'red';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = 'red';
+  ctx.fillRect(food.x * tileSize, food.y * tileSize, tileSize, tileSize);
+
+  // Pineapple with glow
+  ctx.shadowColor = 'yellow';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = 'yellow';
+  ctx.fillRect(pineapple.x * tileSize, pineapple.y * tileSize, tileSize, tileSize);
+
+  // Reset shadows
+  ctx.shadowBlur = 0;
+
+  // Score text
+  ctx.fillStyle = 'white';
+  ctx.font = '24px Arial';
+  ctx.fillText(`Score: ${score}`, 10, 30);
+}
+
+function placeFood() {
+  food.x = Math.floor(Math.random() * tileCount);
+  food.y = Math.floor(Math.random() * tileCount);
+}
+
+function placePineapple() {
+  pineapple.x = Math.floor(Math.random() * tileCount);
+  pineapple.y = Math.floor(Math.random() * tileCount);
+}
+
+function gameOver() {
+  cancelAnimationFrame(animationFrame);
+  bgm.pause();
+  bgm.currentTime = 0;
+  pendingScore = score;
+  canvas.style.display = 'none';
+  document.getElementById('touchControls').style.display = 'none';
+  document.getElementById('playerNameEntry').style.display = 'block';
+
+  clearInterval(pineappleMoveInterval);
+  clearInterval(appleMoveInterval);
+}
+
+function submitName() {
+  const name = document.getElementById('playerName').value || 'Player';
+  highscores.push({ name, score: pendingScore });
+  highscores.sort((a, b) => b.score - a.score);
+  highscores = highscores.slice(0, 5);
+  localStorage.setItem('highscores', JSON.stringify(highscores));
+  document.getElementById('playerNameEntry').style.display = 'none';
+  showHighscores();
+}
+
+function showHighscores() {
+  const scoreList = document.getElementById('scoreList');
+  scoreList.innerHTML = '';
+  highscores.forEach(entry => {
+    const li = document.createElement('li');
+    li.textContent = `${entry.name}: ${entry.score}`;
+    scoreList.appendChild(li);
+  });
+  document.getElementById('highscores').style.display = 'block';
+}
+
+function restartGame() {
+  document.getElementById('highscores').style.display = 'none';
+  document.getElementById('startScreen').style.display = 'block';
+}
+
+function resetHighscores() {
+  highscores = [];
+  localStorage.removeItem('highscores');
+  showHighscores();
+}
+
+// Keyboard controls
+window.addEventListener('keydown', e => {
+  switch (e.key) {
+    case 'ArrowUp':
+      if (velocity.y === 0) velocity = { x: 0, y: -1 };
+      break;
+    case 'ArrowDown':
+      if (velocity.y === 0) velocity = { x: 0, y: 1 };
+      break;
+    case 'ArrowLeft':
+      if (velocity.x === 0) velocity = { x: -1, y: 0 };
+      break;
+    case 'ArrowRight':
+      if (velocity.x === 0) velocity = { x: 1, y: 0 };
+      break;
+  }
+});
+
+// Touch controls
+document.getElementById('btnUp').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (velocity.y === 0) velocity = { x: 0, y: -1 };
+});
+document.getElementById('btnDown').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (velocity.y === 0) velocity = { x: 0, y: 1 };
+});
+document.getElementById('btnLeft').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (velocity.x === 0) velocity = { x: -1, y: 0 };
+});
+document.getElementById('btnRight').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (velocity.x === 0) velocity = { x: 1, y: 0 };
+});
+</script>
+
+</body>
+</html>
